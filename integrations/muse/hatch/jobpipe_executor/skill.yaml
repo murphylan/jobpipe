@@ -1,0 +1,5 @@
+name: "jobpipe_executor"
+title: "JobPipe 求职执行"
+description: "执行 JobPipe 求职任务前定位 Mac 工程、请求最新上下文、上报真实进展并核对 Engine 收据。"
+category: "Work and knowledge"
+include_in_prompt: true

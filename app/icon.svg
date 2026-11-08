@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="JobPipe pipeline">
+  <g transform="rotate(-90 32 32)">
+    <path d="M9 13 H45" fill="none" stroke="#00794C" stroke-width="13" stroke-linecap="round"/>
+    <path d="M45 13 V32 H20" fill="none" stroke="#F58220" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M20 32 V51 H39" fill="none" stroke="#E11B22" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M39 42.5 L57 51 L39 59.5 Z" fill="#E11B22"/>
+  </g>
+</svg>

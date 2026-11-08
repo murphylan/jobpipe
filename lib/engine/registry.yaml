@@ -1,0 +1,265 @@
+# Engine registry (Doc-00 stage 1; FR-3 registry-driven expansion).
+# 2026-11-05 修正：此文件登记所有事件及其元数据（requiresApproval、writes、handler），
+# 但 daemon.ts 目前仍用硬编码分发，未真正按 registry 驱动。
+# 添加新事件时：必须同时更新此文件 AND daemon.ts 的分发逻辑，两处缺一不可。
+# 完全 registry 驱动是后续重构目标，当前为文档性登记。
+# Shapes mirror lib/datafiles.ts and lib/jobs.ts as of 2026-11-01.
+# "loose" means the Zod schema keeps unknown fields instead of dropping
+# them: real files already carry fields the old TS types omit
+# (for example Job.jdMissing, ChangelogFile.version/updatedAt,
+# ProfileFile.workAuth), and stage 1 must not silently lose them.
+#
+# requiresApproval (Q-1, 2026-11-03): high-risk events that need user
+# approval before the engine applies them. 投递 (submit), 改简历版本
+# (resume version change), 删除记录 (record deletion) are high-risk.
+version: 2
+updatedAt: "2026-11-04"
+files:
+  - path: "data/jobs.json"
+    format: json
+    topKeys: [jobs, version, updatedAt]
+    recordKey: id
+    invariants:
+      - "id is unique"
+      - "status in new, screening, approved, applied, dropped"
+  - path: "data/applications.json"
+    format: json
+    topKeys: [applications, version, updatedAt]
+    recordKey: id
+    invariants:
+      - "id is unique"
+      - "every application.jobId must exist in jobs.json (orphan check)"
+      - "stage in todo, applied, replied, screen, interview, offer, rejected, rejected_after_contact, withdrawn, ghosted"
+  - path: "data/mirror/ledger.csv"
+    format: csv
+    header: [id, date_submitted, company, role, req_url, channel, score, role_family, resume_version, employment_type, submission_status, evidence, stage, last_contact_date, recruiter, next_action, next_action_date, jd_snapshot_path, notes]
+    invariants:
+      - "new rows must have exactly 19 fields (RFC 4180 quoting)"
+      - "known drift: existing rows on disk have 18 fields, with notes shifted into jd_snapshot_path; the schema reports this as known drift, not as a pass of INV-4"
+  - path: "data/daily.json"
+    format: json
+    topKeys: [days, version, updatedAt]
+    invariants:
+      - "days[date].apply must equal ledger confirmed rows for that Chicago date (rule 17)"
+  - path: "data/daily-targets.json"
+    format: json
+    topKeys: [targets, version, updatedAt]
+  - path: "data/changelog.json"
+    format: json
+    topKeys: [entries, version, updatedAt]
+    invariants:
+      - "one entry per file per run, file version increments by 1"
+  - path: "data/resume-versions.json"
+    format: json
+    topKeys: [versions, selected, version, updatedAt]
+  - path: "data/resumes.json"
+    format: json
+    topKeys: [blocks, version, updatedAt]
+  - path: "data/profile.json"
+    format: json
+    topKeys: [version, updatedAt]
+  - path: "data/quirks.json"
+    format: json
+    topKeys: [quirks, version, updatedAt]
+    note: "missing real files are reported explicitly; no sample fallback"
+  - path: "data/skill.json"
+    format: json
+    topKeys: [skillVersion, changelog, dependencies, version, updatedAt]
+  - path: "data/activity.json"
+    format: json
+    topKeys: [activities, version, updatedAt]
+    recordKey: activityId
+    invariants:
+      - "same activityId may repeat; the view takes the latest entry"
+      - "done entries must carry at least one evidence entry"
+  - path: "data/waiting.json"
+    format: json
+    topKeys: [items, version, updatedAt]
+    recordKey: waitingId
+    invariants:
+      - "waitingId is unique"
+      - "status flips open -> answered/parked only via a console decision file"
+  - path: "data/plans.json"
+    format: json
+    topKeys: [plans, version, updatedAt]
+    recordKey: planId
+    invariants:
+      - "planId is unique"
+      - "status is computed by Engine (approved/recorded/superseded), never asserted by the sender"
+      - "an approved plan has every key answer's source resolved and an approval basis"
+  - path: "data/checkpoints.json"
+    format: json
+    topKeys: [checkpoints, version, updatedAt]
+    recordKey: checkpointId
+    invariants:
+      - "checkpointId is unique"
+      - "status is computed by Engine from value-level read-back comparison against the bound plan, never asserted by the sender"
+      - "a passed pre-submit checkpoint covers every key field of its plan version"
+  - path: "data/attempts.json"
+    format: json
+    topKeys: [attempts, version, updatedAt]
+    recordKey: attemptId
+    invariants:
+      - "attemptId is unique"
+      - "at most one open attempt per job (recorded/uncertain/escalated)"
+      - "an attempt is consumed by at most one application (applicationId set once by APPLICATION_SUBMITTED)"
+# Events the engine can expand (FR-3). Each event lists the files it
+# writes and whether it requires user approval (Q-1). The expand.ts
+# handler for each event MUST check this registry entry first and
+# refuse unknown events.
+  - path: "data/muse-settings.json"
+    format: json
+    topKeys: [version, projectRoot, museBinary, updatedAt, history]
+    invariants:
+      - "only Engine writes; preserve binding history and enforce expectedVersion"
+
+events:
+  - name: "APPLICATION_SUBMITTED"
+    description: "投递已提交：job 状态翻转 + 新建 application + ledger 新行 + changelog + daily 预览；岗位已有提交尝试记录时必须引用一个 confirmed/resolved-confirmed 的 attemptId 并消费之（阶段 C 幂等守卫）"
+    requiresApproval: true
+    writes:
+      - "data/jobs.json"
+      - "data/applications.json"
+      - "data/mirror/ledger.csv"
+      - "data/changelog.json"
+      - "data/daily.json"
+      - "data/attempts.json"
+    handler: "expandApplicationSubmitted"
+  - name: "APPLICATION_IMPORTED"
+    description: "历史导入：为台账已确认行补建申请记录（岗位须已 applied 且无申请记录；台账行公司/岗位/简历版本须与岗位记录一致；须带雇主确认与用户授权证据；只写 applications.json 与 changelog，不新建台账行、不改岗位状态与 daily）"
+    requiresApproval: true
+    writes:
+      - "data/applications.json"
+      - "data/changelog.json"
+    handler: "applyApplicationImported"
+  - name: "RESUME_VERSION_CHANGED"
+    description: "改简历版本：更新 resume-versions.json 的 selected；高风险，需审批"
+    requiresApproval: true
+    writes:
+      - "data/resume-versions.json"
+      - "data/changelog.json"
+    handler: null
+    note: "handler not yet implemented; registry entry reserves the event name"
+  - name: "RECORD_DELETED"
+    description: "删除记录：从 jobs/applications/ledger 移除记录；高风险，需审批"
+    requiresApproval: true
+    writes:
+      - "data/jobs.json"
+      - "data/applications.json"
+      - "data/mirror/ledger.csv"
+      - "data/changelog.json"
+    handler: null
+    note: "handler not yet implemented; registry entry reserves the event name"
+  # 2026-11-05:补全实际已实现的事件（此前 registry 只登记 3 个，与 daemon 实际处理的 13+ 不符）
+  - name: "TARGET_SET"
+    description: "设置每日目标"
+    requiresApproval: false
+    writes: ["data/daily-targets.json", "data/changelog.json"]
+    handler: "daemon-inline"
+  - name: "DISCOVERED"
+    description: "发现新岗位"
+    requiresApproval: false
+    writes: ["data/jobs.json", "data/changelog.json", "data/daily.json"]
+    handler: "applyDiscovered"
+  - name: "SCREENED"
+    description: "筛选决策：apply/drop/pending，写 jdKind"
+    requiresApproval: false
+    writes: ["data/jobs.json", "data/changelog.json", "data/daily.json"]
+    handler: "applyScreened"
+  - name: "TAILORED"
+    description: "简历定制：注册新版本"
+    requiresApproval: false
+    writes: ["data/resume-versions.json", "data/resume-files", "data/changelog.json", "data/daily.json"]
+    handler: "applyTailored"
+  - name: "USER_DECIDED"
+    description: "用户对岗位决策：apply/drop/hold（需 user-approval 证据）"
+    requiresApproval: false
+    writes: ["data/jobs.json", "data/changelog.json", "data/daily.json"]
+    handler: "applyUserDecided"
+  - name: "FOLLOWUP_RECEIVED"
+    description: "收到雇主跟进"
+    requiresApproval: false
+    writes: ["data/applications.json", "data/mirror/ledger.csv", "data/changelog.json"]
+    handler: "applyFollowupReceived"
+  - name: "AGENT_ACTIVITY"
+    description: "Muse 活动流事件"
+    requiresApproval: false
+    writes: ["data/activity.json", "data/changelog.json"]
+    handler: "applyAgentActivity"
+  - name: "AGENT_WAITING"
+    description: "Muse 新建待定项（只能建不能关）"
+    requiresApproval: false
+    writes: ["data/waiting.json", "data/changelog.json"]
+    handler: "applyAgentWaiting"
+  - name: "PLAN_RECORDED"
+    description: "执行协议阶段 B：逐岗表单计划；关键答案来源由 Engine 解析，批准状态由 Engine 计算（已批准来源全覆盖+授权依据才 approved）"
+    requiresApproval: false
+    writes: ["data/plans.json", "data/changelog.json"]
+    handler: "applyPlanRecorded"
+  - name: "CHECKPOINT_RECORDED"
+    description: "执行协议阶段 C：读回检查点；执行端上报读回值本身，Engine 对照绑定计划做值级比对并计算 passed/failed（pre-submit 必须覆盖全部关键字段）"
+    requiresApproval: false
+    writes: ["data/checkpoints.json", "data/changelog.json"]
+    handler: "applyCheckpointRecorded"
+  - name: "ATTEMPT_RECORDED"
+    description: "执行协议阶段 C：提交尝试写前记录；须已批准计划 + 通过的 pre-submit 检查点集哈希 + 投递授权引用；同岗已有未终结尝试时拒绝（E_ATTEMPT_OPEN，岗位级锁只在 Engine）"
+    requiresApproval: false
+    writes: ["data/attempts.json", "data/changelog.json"]
+    handler: "applyAttemptRecorded"
+  - name: "ATTEMPT_RESOLVED"
+    description: "执行协议阶段 C：提交尝试结果落定（confirmed/not-submitted/uncertain → resolved-confirmed/resolved-not-submitted/escalated）；confirmed 类结果必须带证据"
+    requiresApproval: false
+    writes: ["data/attempts.json", "data/changelog.json"]
+    handler: "applyAttemptResolved"
+  - name: "PROFILE_CHANGED"
+    description: "个人信息变更；高风险，需审批"
+    requiresApproval: true
+    writes: ["data/profile.json", "data/changelog.json"]
+    handler: "applyProfileChanged"
+  - name: "RESUME_IMPORTED"
+    description: "导入简历；高风险，需审批"
+    requiresApproval: true
+    writes: ["data/resume-versions.json", "data/resume-files", "data/changelog.json"]
+    handler: "applyResumeImported"
+  - name: "SKILL_REVISED"
+    description: "技能修订；高风险，需审批"
+    requiresApproval: true
+    writes: ["data/skill.json", "data/changelog.json"]
+    handler: "applySkillRevised"
+  - name: "QUIRK_LEARNED"
+    description: "学到 quirks"
+    requiresApproval: false
+    writes: ["data/quirks.json", "data/changelog.json"]
+    handler: "applyQuirkLearned" 
+
+  - name: "AGENT_CONTEXT_REQUESTED"
+    description: "生成当前规则和非秘密 Knowledge 的任务上下文"
+    requiresApproval: false
+    writes: ["data/agent-contexts/{taskId}.json"]
+    handler: "applyAgentContextRequested"
+  - name: "KNOWLEDGE_CHANGED"
+    description: "知识库创建、修订、归档、重读日志"
+    requiresApproval: false
+    writes: ["data/knowledge.json"]
+    handler: "applyKnowledgeChanged"
+  - name: "WAITING_ANSWERED"
+    description: "用户答复或暂放待定项"
+    requiresApproval: false
+    writes: ["data/waiting.json", "data/changelog.json"]
+    handler: "applyWaitingAnswer"
+  - name: "WAITING_DELETED"
+    description: "用户删除已结束待定项"
+    requiresApproval: false
+    writes: ["data/waiting.json", "data/changelog.json"]
+    handler: "applyDeletion"
+  - name: "ACTIVITY_DELETED"
+    description: "用户删除已结束活动，或其岗位已终结（applied/dropped）而活动未及关闭的孤儿活动"
+    requiresApproval: false
+    writes: ["data/activity.json", "data/changelog.json"]
+    handler: "applyDeletion"
+
+  - name: "MUSE_SETTINGS_CHANGED"
+    description: "用户配置 Muse 与当前 JobPipe 项目的绑定"
+    requiresApproval: false
+    writes: ["data/muse-settings.json"]
+    handler: "applyMuseSettings"

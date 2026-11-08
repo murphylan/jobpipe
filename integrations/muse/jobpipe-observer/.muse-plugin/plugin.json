@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "name": "jobpipe-observer",
+  "displayName": "JobPipe Activity Observer",
+  "version": "0.2.0",
+  "description": "Reports Muse execution signals to JobPipe inbox without tool contents.",
+  "compat": {
+    "source": "native",
+    "manifestDir": ".muse-plugin"
+  },
+  "capabilities": {
+    "skills": [
+      {
+        "id": "jobpipe-start",
+        "path": "skills/jobpipe-start/SKILL.md",
+        "enabledDefault": true
+      }
+    ],
+    "commands": [],
+    "hooks": [
+      {
+        "id": "sessionstart",
+        "event": "SessionStart",
+        "command": [
+          "node",
+          "hooks/event-0.mjs"
+        ],
+        "timeoutMs": 5000
+      },
+      {
+        "id": "userpromptsubmit",
+        "event": "UserPromptSubmit",
+        "command": [
+          "node",
+          "hooks/event-1.mjs"
+        ],
+        "timeoutMs": 5000
+      },
+      {
+        "id": "pretooluse",
+        "event": "PreToolUse",
+        "command": [
+          "node",
+          "hooks/event-2.mjs"
+        ],
+        "timeoutMs": 5000
+      },
+      {
+        "id": "posttooluse",
+        "event": "PostToolUse",
+        "command": [
+          "node",
+          "hooks/event-3.mjs"
+        ],
+        "timeoutMs": 5000
+      },
+      {
+        "id": "posttoolusefailure",
+        "event": "PostToolUseFailure",
+        "command": [
+          "node",
+          "hooks/event-4.mjs"
+        ],
+        "timeoutMs": 5000
+      },
+      {
+        "id": "stop",
+        "event": "Stop",
+        "command": [
+          "node",
+          "hooks/event-5.mjs"
+        ],
+        "timeoutMs": 5000
+      },
+      {
+        "id": "sessionend",
+        "event": "SessionEnd",
+        "command": [
+          "node",
+          "hooks/event-6.mjs"
+        ],
+        "timeoutMs": 5000
+      }
+    ],
+    "mcpServers": [],
+    "reminders": []
+  }
+}

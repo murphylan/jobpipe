@@ -1,0 +1,24 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, expect, it } from "vitest";
+const roots: string[] = [];
+const script = path.resolve("scripts/check-publication-privacy.ts");
+afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
+it("checks new untracked files, skips ignored local configuration, and does not expose matches", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "privacy-cli-")); roots.push(root);
+  expect(spawnSync("git", ["init"], { cwd: root }).status).toBe(0);
+  writeFileSync(path.join(root, ".gitignore"), ".env.local\n");
+  const email = ["fixture", "gmail.com"].join("@");
+  writeFileSync(path.join(root, ".env.local"), email);
+  writeFileSync(path.join(root, "new-file.txt"), email);
+  const bad = spawnSync(process.execPath, [script], { cwd: root, encoding: "utf8" });
+  expect(bad.status).toBe(1);
+  expect(bad.stderr).toContain("new-file.txt: non-example-email");
+  expect(bad.stderr).not.toContain(email);
+  expect(bad.stderr).not.toContain(".env.local");
+  writeFileSync(path.join(root, "new-file.txt"), "applicant@example.com");
+  const good = spawnSync(process.execPath, [script], { cwd: root, encoding: "utf8" });
+  expect(good.status, good.stderr).toBe(0);
+});

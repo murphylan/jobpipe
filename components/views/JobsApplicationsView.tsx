@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Briefcase, ChevronDown } from "lucide-react";
 import { filterJobs, searchJobs, type Job, type JobStatus } from "../../lib/jobs";
 import type { Application, DailyFile, DailyTargetsFile } from "../../lib/datafiles";
-import { REPLIED, INTERVIEW } from "../../lib/ledger";
+import { REPLIED, INTERVIEW, funnelBy, type Row } from "../../lib/ledger";
 import JobDrawer from "./JobDrawer";
 
 const PAGE_SIZE = 15;
@@ -43,9 +43,18 @@ const JOB_STATUS_LABELS: Record<string, string> = {
 
 const pct = (a: number, b: number) => (b ? `${Math.round((100 * a) / b)}%` : "0%");
 
-export default function JobsApplicationsView({ jobs, apps, daily, targets, today, onJobClick }: {
+type By = "score_band" | "channel" | "resume_version" | "role_family";
+const BYS: [By, string][] = [
+  ["score_band", "Score band"],
+  ["channel", "Channel"],
+  ["resume_version", "Resume"],
+  ["role_family", "Role family"],
+];
+
+export default function JobsApplicationsView({ jobs, apps, ledger, daily, targets, today, onJobClick }: {
   jobs: Job[];
   apps: Application[];
+  ledger: Row[];
   daily: DailyFile;
   targets: DailyTargetsFile;
   today: string;
@@ -58,6 +67,8 @@ export default function JobsApplicationsView({ jobs, apps, daily, targets, today
   const [page, setPage] = useState(1);
   const [drawerJob, setDrawerJob] = useState<Job | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [by, setBy] = useState<By>("score_band");
+  const f = funnelBy(ledger, by);
   const openedLink = useRef(false);
   useEffect(() => {
     if (openedLink.current) return;
@@ -143,6 +154,42 @@ export default function JobsApplicationsView({ jobs, apps, daily, targets, today
             );
           })}
       </div>
+      <section id="funnel" style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <span style={{ fontSize: 11, letterSpacing: "0.08em", color: "#64748b", fontWeight: 500 }}>FUNNEL · CONFIRMED ONLY</span>
+          <span style={{ display: "flex", gap: 6 }}>
+            {BYS.map(([k, l]) => (
+              <button key={k} onClick={() => setBy(k)} style={{ fontSize: 12, padding: "4px 12px", borderRadius: 999, border: "1px solid #e2e8f0", background: by === k ? "#fff" : "transparent", fontWeight: by === k ? 600 : 400, color: by === k ? "#0f172a" : "#64748b", cursor: "pointer" }}>
+                {l}
+              </button>
+            ))}
+          </span>
+        </div>
+        <style>{`.funnel-table .tr-body:hover { background: #e8f1fb; }`}</style>
+        <div className="funnel-table" style={{ overflowX: "auto", background: "#fff", border: "1px solid #dbe7f3", borderRadius: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr", columnGap: 12, padding: "10px 12px", fontSize: 13, color: "#666", fontWeight: 400, borderBottom: "2px solid #dbe7f3", background: "#fff" }}>
+            <span>{by.replace("_", " ").toUpperCase()}</span>
+            <span>APPS</span>
+            <span>REPLIES</span>
+            <span>REPLY %</span>
+            <span>INTERVIEWS</span>
+            <span>GHOSTED</span>
+          </div>
+          {[...f.groups, { key: "TOTAL", ...f.total }].map((g) => (
+            <div className="tr-body" key={g.key} style={{ display: "grid", gridTemplateColumns: "1.2fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr", columnGap: 12, padding: "10px 12px", borderBottom: "1px solid #eef3f9", fontSize: 14, fontWeight: g.key === "TOTAL" ? 700 : 400 }}>
+              <span>{g.key}</span>
+              <span className="mono">{g.apps}</span>
+              <span className="mono">{g.replies}</span>
+              <span className="mono">{pct(g.replies, g.apps)}</span>
+              <span className="mono">{g.interviews}</span>
+              <span className="mono">{g.ghosted}</span>
+            </div>
+          ))}
+          {f.total.apps < 20 && (
+            <div className="empty" style={{ padding: 12, color: "#94a3b8", fontSize: 13 }}>Fewer than 20 confirmed applications: record only, draw no conclusions (skill rule).</div>
+          )}
+        </div>
+      </section>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
           <div style={{ position: "relative", flex: "1 1 220px", minWidth: 180 }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>

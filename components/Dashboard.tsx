@@ -8,17 +8,10 @@ import { CircleCheck, CircleHelp, FolderOpen } from "lucide-react";
 import type { BusinessTask } from "../lib/task-state";
 import { freshRuntimeCount, pendingTasks } from "../lib/task-state";
 import type { FullSnapshot } from "../lib/datafiles";
-import { funnelBy, todayStats } from "../lib/ledger";
+import { todayStats } from "../lib/ledger";
 import TaskList from "./TaskList";
 import JobDrawer from "./views/JobDrawer";
 
-type By = "score_band" | "channel" | "resume_version" | "role_family";
-const BYS: [By, string][] = [
-  ["score_band", "Score band"],
-  ["channel", "Channel"],
-  ["resume_version", "Resume"],
-  ["role_family", "Role family"],
-];
 const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/Chicago" });
 const pct = (a: number, b: number) => (b ? `${Math.round((100 * a) / b)}%` : "0%");
 
@@ -37,7 +30,6 @@ export default function Dashboard({
   onJobClick?: (jobId: string) => void;
   onGoActivity?: () => void;
 }) {
-  const [by, setBy] = useState<By>("score_band");
   const [helpOpen, setHelpOpen] = useState<null | "run" | "note">(null);
   // 数据源路径 popover 独立 state（2026-11-05）
   const [srcOpen, setSrcOpen] = useState(false);
@@ -74,7 +66,6 @@ export default function Dashboard({
 
   const { ledger, today } = snap;
   const st = todayStats(ledger, today);
-  const f = funnelBy(ledger, by);
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
   const plan = snap.dailyTargets.targets[today] ?? 20;
   const confirmedToday = st.today.LinkedIn + st.today.Indeed + st.today.Other;
@@ -210,42 +201,6 @@ export default function Dashboard({
         onJobClick={(id) => setDrawerJobId(id)}
       />
 
-      <section id="funnel" style={{ marginBottom: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <span style={{ fontSize: 11, letterSpacing: "0.08em", color: "#64748b", fontWeight: 500 }}>FUNNEL · CONFIRMED ONLY</span>
-          <span style={{ display: "flex", gap: 6 }}>
-            {BYS.map(([k, l]) => (
-              <button key={k} onClick={() => setBy(k)} style={{ fontSize: 12, padding: "4px 12px", borderRadius: 999, border: "1px solid #e2e8f0", background: by === k ? "#fff" : "transparent", fontWeight: by === k ? 600 : 400, color: by === k ? "#0f172a" : "#64748b", cursor: "pointer" }}>
-                {l}
-              </button>
-            ))}
-          </span>
-        </div>
-        <style>{`.funnel-table .tr-body:hover { background: #e8f1fb; }`}</style>
-        <div className="funnel-table" style={{ overflowX: "auto", background: "#fff", border: "1px solid #dbe7f3", borderRadius: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr", columnGap: 12, padding: "10px 12px", fontSize: 13, color: "#666", fontWeight: 400, borderBottom: "2px solid #dbe7f3", background: "#fff" }}>
-            <span>{by.replace("_", " ").toUpperCase()}</span>
-            <span>APPS</span>
-            <span>REPLIES</span>
-            <span>REPLY %</span>
-            <span>INTERVIEWS</span>
-            <span>GHOSTED</span>
-          </div>
-          {[...f.groups, { key: "TOTAL", ...f.total }].map((g) => (
-            <div className="tr-body" key={g.key} style={{ display: "grid", gridTemplateColumns: "1.2fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr", columnGap: 12, padding: "10px 12px", borderBottom: "1px solid #eef3f9", fontSize: 14, fontWeight: g.key === "TOTAL" ? 700 : 400 }}>
-              <span>{g.key}</span>
-              <span className="mono">{g.apps}</span>
-              <span className="mono">{g.replies}</span>
-              <span className="mono">{pct(g.replies, g.apps)}</span>
-              <span className="mono">{g.interviews}</span>
-              <span className="mono">{g.ghosted}</span>
-            </div>
-          ))}
-          {f.total.apps < 20 && (
-            <div className="empty" style={{ padding: 12, color: "#94a3b8", fontSize: 13 }}>Fewer than 20 confirmed applications: record only, draw no conclusions (skill rule).</div>
-          )}
-        </div>
-      </section>
       {/* 右侧抽屉：任务行点击查看职位详情 */}
       <JobDrawer
         job={drawerJobId ? allJobs.find((j) => j.id === drawerJobId) ?? null : null}

@@ -111,6 +111,7 @@ export default function App({ initial, initialView = "today" }: { initial: FullS
             <JobsApplicationsView
               jobs={snap.jobs.jobs}
               apps={snap.applications.applications}
+              ledger={snap.ledger}
               daily={snap.daily}
               targets={snap.dailyTargets}
               today={snap.today}

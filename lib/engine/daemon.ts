@@ -66,6 +66,25 @@ function archiveDecision(baseDir: string, decisionFile: string, taskId: string):
   moveFile(decisionFile, destDir, `decision-${taskId}.json`);
 }
 
+// Events whose committed run record or ledger effect can change the
+// daily counters. deriveDailyCounts() only counts runs of DISCOVERED /
+// SCREENED / TAILORED / USER_DECIDED, and the apply count only moves
+// when APPLICATION_SUBMITTED appends a confirmed ledger row. Every
+// other committed event (progress reports, plans, checkpoints,
+// attempts, context requests, ...) leaves both inputs untouched, so
+// recalculateDaily() could only re-derive the same numbers — at the
+// cost of a full ledger parse plus a full scan of data/runs on every
+// single event. Gate the recalculation to the events that can move
+// it; run persistence, state and journal completion are unchanged
+// for all events. (Efficiency roadmap item 2, 2026-11-09.)
+const DAILY_AFFECTING_EVENTS = new Set([
+  "DISCOVERED",
+  "SCREENED",
+  "TAILORED",
+  "USER_DECIDED",
+  "APPLICATION_SUBMITTED",
+]);
+
 function writeRun(baseDir: string, taskId: string, event: string, status: string, summary: string): void {
   const dir = path.join(dataDir(baseDir), "runs");
   const full = path.join(dir, `${taskId}.json`);
@@ -73,7 +92,9 @@ function writeRun(baseDir: string, taskId: string, event: string, status: string
     writeFileSync(full, canonicalJson({ taskId, event, status, summary, finishedAt: new Date().toISOString() }));
   }
   if (status === "committed") {
-    recalculateDaily(baseDir);
+    if (DAILY_AFFECTING_EVENTS.has(event)) {
+      recalculateDaily(baseDir);
+    }
     writeState(baseDir, taskId, { paths: [...gitFilesForEvent(event, taskId), "daily.json"] });
     finishJournal(baseDir, taskId);
   }
